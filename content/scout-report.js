@@ -5,14 +5,85 @@
   // Minimal delay between requests to be polite (tune if needed)
   const REQUEST_GAP_MS = 250;
 
+  // Cache configuration
+  const CACHE_KEY_PREFIX = "mz-scout-";
+  const CACHE_VERSION = "v1";
+  const CACHE_EXPIRY_DAYS = 30; // Scout reports never change, but set reasonable expiry
+
   const scoutUrl = (pid) =>
     `https://www.managerzone.com/ajax.php?p=players&sub=scout_report&pid=${pid}&sport=soccer`;
 
   const getPlayerContainers = () =>
     Array.from(document.querySelectorAll(".playerContainer"));
 
+  function log(...message) {
+    console.log("[MZ Tools][content/scout-report]", ...message);
+  }
+
   function logE(...message) {
     console.error("[MZ Tools][content/scout-report]", ...message);
+  }
+
+  // ---- Cache utilities ----
+  function getCacheKey(pid) {
+    return `${CACHE_KEY_PREFIX}${CACHE_VERSION}-${pid}`;
+  }
+
+  function getCachedScoutData(pid) {
+    try {
+      const key = getCacheKey(pid);
+      const cached = localStorage.getItem(key);
+      if (!cached) return null;
+
+      const data = JSON.parse(cached);
+      const now = Date.now();
+
+      // Check if cache has expired
+      if (data.expires && now > data.expires) {
+        localStorage.removeItem(key);
+        return null;
+      }
+
+      return data.scoutData;
+    } catch (error) {
+      logE("Error reading from cache:", error);
+      return null;
+    }
+  }
+
+  function setCachedScoutData(pid, scoutData) {
+    try {
+      const key = getCacheKey(pid);
+      const expiryTime = Date.now() + CACHE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+
+      const cacheEntry = {
+        scoutData,
+        expires: expiryTime,
+        cached: Date.now(),
+      };
+
+      localStorage.setItem(key, JSON.stringify(cacheEntry));
+    } catch (error) {
+      logE("Error writing to cache:", error);
+      // Continue without caching if localStorage is full or unavailable
+    }
+  }
+
+  function clearScoutCache() {
+    try {
+      const keys = Object.keys(localStorage);
+      const cacheKeys = keys.filter((key) => key.startsWith(CACHE_KEY_PREFIX));
+
+      for (const key of cacheKeys) {
+        localStorage.removeItem(key);
+      }
+
+      log(`Scout cache cleared - ${cacheKeys.length} items removed`);
+      return cacheKeys.length;
+    } catch (error) {
+      logE("Error clearing cache:", error);
+      return 0;
+    }
   }
 
   function getPlayerIdFromContainer(container) {
@@ -64,6 +135,15 @@
   }
 
   async function fetchScout(pid) {
+    // Check cache first
+    const cachedData = getCachedScoutData(pid);
+    if (cachedData) {
+      log(`Using cached scout data for player ${pid}`);
+      return cachedData;
+    }
+
+    // Fetch from server if not cached
+    log(`Fetching scout data from server for player ${pid}`);
     const res = await fetch(scoutUrl(pid), {
       method: "GET",
       credentials: "include",
@@ -71,7 +151,13 @@
       cache: "no-store",
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return parseScoutHTML(await res.text());
+
+    const scoutData = parseScoutHTML(await res.text());
+
+    // Cache the result for future use
+    setCachedScoutData(pid, scoutData);
+
+    return scoutData;
   }
 
   // ---- Skill row helpers ----
@@ -274,4 +360,44 @@
   } else {
     run();
   }
+
+  // Handle messages from popup for cache management
+  chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
+    if (req?.type === "GET_CACHE_STATS") {
+      try {
+        const keys = Object.keys(localStorage).filter((key) =>
+          key.startsWith(CACHE_KEY_PREFIX)
+        );
+
+        const totalSize = keys.reduce((size, key) => {
+          const item = localStorage.getItem(key);
+          return size + (item ? item.length : 0);
+        }, 0);
+
+        const stats = {
+          totalCached: keys.length,
+          totalSize: totalSize,
+          cacheKeys: keys,
+        };
+
+        sendResponse({ stats });
+      } catch (error) {
+        logE("Error getting cache stats:", error);
+        sendResponse({ error: error.message });
+      }
+      return true; // Keep message channel open for async response
+    }
+
+    if (req?.type === "CLEAR_CACHE") {
+      try {
+        const clearedCount = clearScoutCache();
+        log(`Cleared ${clearedCount} cached scout reports via popup`);
+        sendResponse({ clearedCount });
+      } catch (error) {
+        logE("Error clearing cache:", error);
+        sendResponse({ error: error.message });
+      }
+      return true; // Keep message channel open for async response
+    }
+  });
 })();
