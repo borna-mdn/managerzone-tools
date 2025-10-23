@@ -325,7 +325,10 @@
     );
   }
 
-  async function processContainer(container, delayMs) {
+  // Store processed player data to reapply after DOM changes
+  const processedPlayers = new Map(); // pid -> { highest, lowest, starsHigh, starsLow }
+
+  async function processContainerAndStore(container, delayMs) {
     const pid = getPlayerIdFromContainer(container);
     if (!pid) return;
 
@@ -338,11 +341,17 @@
     await new Promise((r) => setTimeout(r, delayMs));
 
     try {
-      const { highest, lowest, starsHigh, starsLow } = await fetchScout(pid);
+      const scoutData = await fetchScout(pid);
+      const { highest, lowest, starsHigh, starsLow } = scoutData;
+
       if (!highest?.length && !lowest?.length) {
         renderStatus(container, "No scout info", "is-error");
         return;
       }
+
+      // Store the data for reapplication
+      processedPlayers.set(pid, scoutData);
+
       applyFlagsToContainer(container, highest, lowest, starsHigh, starsLow);
       renderStatus(container, "Scout flags added", "is-done");
     } catch (e) {
@@ -350,15 +359,82 @@
     }
   }
 
-  function run() {
+  function reapplyFlagsToExistingPlayers() {
     const containers = getPlayerContainers();
-    containers.forEach((c, i) => processContainer(c, i * REQUEST_GAP_MS));
+
+    for (const container of containers) {
+      const pid = getPlayerIdFromContainer(container);
+      if (!pid) continue;
+
+      const scoutData = processedPlayers.get(pid);
+      if (!scoutData) continue;
+
+      const { highest, lowest, starsHigh, starsLow } = scoutData;
+      applyFlagsToContainer(container, highest, lowest, starsHigh, starsLow);
+      renderStatus(container, "Scout flags added", "is-done");
+    }
+  }
+
+  // Watch for DOM changes (e.g., when filters are applied)
+  function setupDOMObserver() {
+    const targetNode = document.body;
+    if (!targetNode) return;
+
+    const observer = new MutationObserver((mutations) => {
+      // Check if player containers were modified
+      let shouldReapply = false;
+
+      for (const mutation of mutations) {
+        if (mutation.type === "childList") {
+          // Check if any added/removed nodes contain player containers
+          const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
+          for (const node of nodes) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              if (
+                node.classList?.contains("playerContainer") ||
+                node.querySelector?.(".playerContainer")
+              ) {
+                shouldReapply = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (shouldReapply) {
+        log("DOM change detected, reapplying scout flags...");
+        // Small delay to ensure DOM is fully updated
+        setTimeout(reapplyFlagsToExistingPlayers, 100);
+      }
+    });
+
+    observer.observe(targetNode, {
+      childList: true,
+      subtree: true,
+    });
+
+    log("DOM observer initialized");
   }
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", run, { once: true });
+    document.addEventListener(
+      "DOMContentLoaded",
+      () => {
+        const containers = getPlayerContainers();
+        containers.forEach((c, i) =>
+          processContainerAndStore(c, i * REQUEST_GAP_MS)
+        );
+        setupDOMObserver();
+      },
+      { once: true }
+    );
   } else {
-    run();
+    const containers = getPlayerContainers();
+    containers.forEach((c, i) =>
+      processContainerAndStore(c, i * REQUEST_GAP_MS)
+    );
+    setupDOMObserver();
   }
 
   // Handle messages from popup for cache management
