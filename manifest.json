@@ -24,6 +24,7 @@
     },
     {
       "matches": ["*://www.managerzone.com/*"],
+      "exclude_matches": ["*://www.managerzone.com/?p=transfer*"],
       "js": ["content/scout-report.js"],
       "css": ["content/scout-report.css"],
       "run_at": "document_idle"

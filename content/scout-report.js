@@ -1,7 +1,4 @@
 (() => {
-  const PLAYERS_PAGE_REGEX = /[?&]p=players(\b|&|$)/i;
-  if (!PLAYERS_PAGE_REGEX.test(location.search)) return;
-
   // Minimal delay between requests to be polite (tune if needed)
   const REQUEST_GAP_MS = 250;
 
@@ -325,6 +322,15 @@
     );
   }
 
+  function hasPlayerSkillsTable(container) {
+    const skillsTable = container.querySelector(".player_skills");
+    if (!skillsTable) return false;
+
+    // Check if table has actual skill rows
+    const rows = skillsTable.querySelectorAll("tr");
+    return rows.length > 0;
+  }
+
   // Store processed player data to reapply after DOM changes
   const processedPlayers = new Map(); // pid -> { highest, lowest, starsHigh, starsLow }
 
@@ -334,6 +340,11 @@
 
     if (!hasScoutLink(container)) {
       renderStatus(container, "No scout link", "is-error");
+      return;
+    }
+
+    if (!hasPlayerSkillsTable(container)) {
+      renderStatus(container, "No skills table", "is-error");
       return;
     }
 
@@ -369,43 +380,92 @@
       const scoutData = processedPlayers.get(pid);
       if (!scoutData) continue;
 
+      // Check if skills table is available before applying flags
+      if (!hasPlayerSkillsTable(container)) {
+        renderStatus(container, "No skills table", "is-error");
+        continue;
+      }
+
       const { highest, lowest, starsHigh, starsLow } = scoutData;
       applyFlagsToContainer(container, highest, lowest, starsHigh, starsLow);
       renderStatus(container, "Scout flags added", "is-done");
     }
   }
 
-  // Watch for DOM changes (e.g., when filters are applied)
+  // Track which containers we've already processed to avoid duplicates
+  const processedContainers = new WeakSet();
+
+  // Process any new player containers that appear
+  function processNewContainers() {
+    const containers = getPlayerContainers();
+    const newContainers = containers.filter((c) => !processedContainers.has(c));
+
+    if (newContainers.length === 0) return;
+
+    log(`Found ${newContainers.length} new player containers`);
+
+    // Mark as processed immediately to avoid duplicates
+    newContainers.forEach((c) => processedContainers.add(c));
+
+    // Process with staggered delays
+    newContainers.forEach((c, i) =>
+      processContainerAndStore(c, i * REQUEST_GAP_MS)
+    );
+  }
+
+  // Watch for DOM changes (player containers appearing/filtering/etc)
   function setupDOMObserver() {
     const targetNode = document.body;
-    if (!targetNode) return;
+    if (!targetNode) {
+      log("document.body not available yet, retrying...");
+      setTimeout(setupDOMObserver, 100);
+      return;
+    }
 
     const observer = new MutationObserver((mutations) => {
-      // Check if player containers were modified
-      let shouldReapply = false;
+      let hasPlayerContainerChanges = false;
 
       for (const mutation of mutations) {
         if (mutation.type === "childList") {
-          // Check if any added/removed nodes contain player containers
-          const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
-          for (const node of nodes) {
+          // Check if any added nodes contain player containers
+          for (const node of mutation.addedNodes) {
             if (node.nodeType === Node.ELEMENT_NODE) {
               if (
                 node.classList?.contains("playerContainer") ||
                 node.querySelector?.(".playerContainer")
               ) {
-                shouldReapply = true;
+                hasPlayerContainerChanges = true;
                 break;
               }
             }
           }
+
+          // Also check removed nodes for reapplication scenarios
+          if (!hasPlayerContainerChanges) {
+            for (const node of mutation.removedNodes) {
+              if (node.nodeType === Node.ELEMENT_NODE) {
+                if (
+                  node.classList?.contains("playerContainer") ||
+                  node.querySelector?.(".playerContainer")
+                ) {
+                  hasPlayerContainerChanges = true;
+                  break;
+                }
+              }
+            }
+          }
         }
+
+        if (hasPlayerContainerChanges) break;
       }
 
-      if (shouldReapply) {
-        log("DOM change detected, reapplying scout flags...");
+      if (hasPlayerContainerChanges) {
+        log("Player container changes detected");
         // Small delay to ensure DOM is fully updated
-        setTimeout(reapplyFlagsToExistingPlayers, 100);
+        setTimeout(() => {
+          processNewContainers();
+          reapplyFlagsToExistingPlayers();
+        }, 100);
       }
     });
 
@@ -414,27 +474,30 @@
       subtree: true,
     });
 
-    log("DOM observer initialized");
+    log("DOM observer initialized and watching for player containers");
+  }
+
+  // Initialize scout report functionality
+  function initialize() {
+    log("Initializing scout report enhancement");
+
+    // Always set up the observer first to catch dynamically loaded containers
+    setupDOMObserver();
+
+    // Process any containers that are already in the DOM
+    const containers = getPlayerContainers();
+    if (containers.length > 0) {
+      log(`Found ${containers.length} initial player containers`);
+      processNewContainers();
+    } else {
+      log("No initial player containers found, waiting for dynamic content");
+    }
   }
 
   if (document.readyState === "loading") {
-    document.addEventListener(
-      "DOMContentLoaded",
-      () => {
-        const containers = getPlayerContainers();
-        containers.forEach((c, i) =>
-          processContainerAndStore(c, i * REQUEST_GAP_MS)
-        );
-        setupDOMObserver();
-      },
-      { once: true }
-    );
+    document.addEventListener("DOMContentLoaded", initialize, { once: true });
   } else {
-    const containers = getPlayerContainers();
-    containers.forEach((c, i) =>
-      processContainerAndStore(c, i * REQUEST_GAP_MS)
-    );
-    setupDOMObserver();
+    initialize();
   }
 
   // Handle messages from popup for cache management
