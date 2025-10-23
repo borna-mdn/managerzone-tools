@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ManagerZone Tools",
-  "description": "Starter extension for enhancing ManagerZone.",
+  "description": "Extension for enhancing ManagerZone.",
   "version": "0.1.0",
   "icons": {
     "16": "icons/icon16.png",
@@ -20,6 +20,13 @@
     {
       "matches": ["*://www.managerzone.com/*"],
       "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://www.managerzone.com/*"],
+      "exclude_matches": ["*://www.managerzone.com/?p=transfer*"],
+      "js": ["content/scout-report.js"],
+      "css": ["content/scout-report.css"],
       "run_at": "document_idle"
     }
   ]

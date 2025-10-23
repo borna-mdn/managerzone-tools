@@ -1,0 +1,29 @@
+/* tiny status indicator in header (right side) */
+.mz-scout-status {
+  margin-left: 0.75rem;
+  font-size: 11px;
+  opacity: 0.9;
+}
+.mz-scout-status.is-loading {
+  font-style: italic;
+  color: #a8d5ff; /* Light blue for loading state */
+}
+.mz-scout-status.is-error {
+  color: #ff6b6b; /* Bright coral red - high contrast on dark background */
+}
+.mz-scout-status.is-done {
+  color: #51cf66; /* Bright green - clearly visible on dark background */
+}
+
+/* flags next to the skill name */
+.mz-potential-flags {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.mz-potential-flag {
+  display: inline-block;
+  width: 6px;
+  height: 10px;
+}
