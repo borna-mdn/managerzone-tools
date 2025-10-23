@@ -2,16 +2,17 @@
 .mz-scout-status {
   margin-left: 0.75rem;
   font-size: 11px;
-  opacity: 0.75;
+  opacity: 0.9;
 }
 .mz-scout-status.is-loading {
   font-style: italic;
+  color: #a8d5ff; /* Light blue for loading state */
 }
 .mz-scout-status.is-error {
-  color: #a11;
+  color: #ff6b6b; /* Bright coral red - high contrast on dark background */
 }
 .mz-scout-status.is-done {
-  color: #2a7;
+  color: #51cf66; /* Bright green - clearly visible on dark background */
 }
 
 /* flags next to the skill name */
