@@ -125,22 +125,6 @@ async function updateCacheDisplay() {
 }
 
 // Event listeners
-document.getElementById("ping").addEventListener("click", async () => {
-  const response = await sendMessageToActiveTab({ type: "PING" });
-
-  if (!response.isManagerZone) {
-    showStatus("Please switch to a ManagerZone tab first", "info");
-    return;
-  }
-
-  if (response.error) {
-    showStatus("Content script error: " + response.error, "error");
-    return;
-  }
-
-  showStatus("Content says: " + (response.msg ?? "no response"), "success");
-});
-
 document.getElementById("refresh-cache").addEventListener("click", async () => {
   const result = await updateCacheDisplay();
 
